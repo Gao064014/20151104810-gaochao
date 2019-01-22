@@ -1,0 +1,551 @@
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE PARKING
+OBJECT MODULE PLACED IN Parking.OBJ
+COMPILER INVOKED BY: D:\单片机\keil 开发软件\C51\BIN\C51.EXE Parking.c BROWSE DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include <reg51.h>                                               //头文件
+   2          #define uchar unsigned char                              //宏定义
+   3          #define uint unsigned int                                //宏定义
+   4          bit Adjust;                                                              //调节标志位，=1表示进入来电，=0是显示车位
+   5          bit Alarm_flag;                                                  //发送短信标志位，=1表示已经发送，=0表示没有发送
+   6          sbit IN=P1^4;                                                    //入口
+   7          sbit OUT=P1^3;                                                   //出口
+   8          sbit BEEP=P2^2;                                                  //蜂鸣器端口
+   9          sbit rs=P1^0;                                                    //LCD1602位定义
+  10          sbit rw=P1^1;                                                    //LCD1602位定义
+  11          sbit e=P1^2;                                                     //LCD1602位定义
+  12          sbit STALL1=P3^2;                        //车位指示灯
+  13          sbit STALL2=P3^4;                        //车位指示灯
+  14          sbit STALL3=P3^5;                        //车位指示灯
+  15          sbit STALL4=P2^1;                        //车位指示灯
+  16          sbit STALL5=P3^3;                        //车位指示灯
+  17          sbit STALL6=P3^6;                        //车位指示灯
+  18          sbit STALL7=P3^7;                        //车位指示灯
+  19          sbit STALL8=P2^0;                        //车位指示灯
+  20          
+  21          uchar code table1[]="Empty Stall:    ";  //空车位
+  22          uchar code table2[]="Guide:          ";  //显示车位序号
+  23          uchar code table3[]="                ";                         //清屏内容
+  24          uchar code table4[]="GSM Stall Alarm!";                         //初始化显示内容
+  25          uchar code table5[]="SIM Initialize!!";                         //初始化显示内容
+  26          uchar code table7[]="  Calling Up... ";
+  27          
+  28          uchar Count=8;                           //车位数
+  29          
+  30          uchar xdata UART0_Data[256];                                                    //存放手机模块的数组
+  31          uchar UART0_Len=0;                                                                              //定义长度
+  32          uchar Len=0;                                                                                    //定义长度
+  33          uchar UART0_flg=0;
+  34          
+  35          uchar code Command_AT[]="AT\r\n";                                               //发送AT，建立连接
+  36          uchar code Command_AT_CMGF[]="AT+CMGF=1\r\n";                   //把格式设置为text格式
+  37          
+  38          uchar code Command_AT_CMGS[]="AT+CMGS=";                                //发送到指定号码指令
+  39          uchar code Command_AT_YIN[]={0x22};                                             //发送指定号码双引号
+  40          uchar code Command_AT_ENTER[]="\r\n";                                   //发送指定号码双引号
+  41          uchar Number[]="                ";                                              //发送到指定号码  来电号码存储
+  42          uchar code Command_AT_NUM[]="18847138287";                              //发送到指定号码  报警号码对象
+  43          uchar code Command_AT_IPR[]="AT+IPR=9600\r\n";                  //设置波特率
+  44          uchar code Command_AT_CNMI[]="AT+CNMI=1,1,2\r\n";               //设置短消息提示
+  45          uchar code Command_AT_CLIP[]="AT+CLIP=1\r\n";                   //来电显示
+  46          uchar code Command_AT_CRC[]="AT+CRC=0\r\n";                             //设置来电开头为RING，有电话打入收到RING提醒
+  47          uchar code Command_ATH[]="ATH\r\n";                                             //挂电话
+  48          uchar code Command_ATE[]="ATE1\r\n";                                    //设置回显
+  49          uchar code Command_AT_End[]={0x1A};                                             //发送短信内容结束符
+  50          uchar code Command_NUM[]="0123456789+-";                                //短信里温度值提取的数字
+  51          uchar Command_AT_Stall[33]="The number of parking space is   ";   //停车位数量是*
+  52          uchar code Command_AT_Full[43]="Please note that the parking space is full!";    //请注意车位满了
+  53          
+  54          void Send_Message1(void);
+  55          void Send_Message2(void);
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 2   
+
+  56          void LCD_dsiplay(void);
+  57          /**************************************LCD1602**********************************************************/ 
+  58          void delay_lcd(uint z)                                                          //显示屏延时0.2ms函数
+  59          {
+  60   1              uint x,y;
+  61   1              for(x=z;x>0;x--)
+  62   1                      for(y=20;y>0;y--);
+  63   1      }
+  64          
+  65          void write_com(uchar com)                                                       //LCD1602写指令函数
+  66          {
+  67   1              rw=0;
+  68   1              delay_lcd(5);
+  69   1              rs=0;
+  70   1              delay_lcd(5);
+  71   1              e=1;
+  72   1              delay_lcd(5);
+  73   1              P0=com;
+  74   1              delay_lcd(5);
+  75   1              e=0;
+  76   1              delay_lcd(5);   
+  77   1      }
+  78          
+  79          void write_date(uchar date)                                                     //LCD1602写数据函数
+  80          {                                                                       
+  81   1              rw=0;
+  82   1              delay_lcd(5);
+  83   1              rs=1;
+  84   1              delay_lcd(5);
+  85   1              e=1;
+  86   1              delay_lcd(5);
+  87   1              P0=date;
+  88   1              delay_lcd(5);
+  89   1              e=0;
+  90   1              delay_lcd(5);   
+  91   1      }
+  92          
+  93          void init()                                                 //LCD1602初始化函数
+  94          {       
+  95   1              uchar num;
+  96   1              e=0;                                                // 时序表e初始为0
+  97   1              write_com(0x38);                        //设置16*2显示，5*7点阵，8位数据接口
+  98   1              write_com(0x0c);                                //设置光标
+  99   1              write_com(0x06);                                //光标自动加1,光标输入方式
+ 100   1              write_com(0x01);                                //清屏
+ 101   1              write_com(0x80);                                //设置初始显示位置
+ 102   1              for(num=0;num<16;num++)
+ 103   1              {                                                                                 
+ 104   2                      write_date(table4[num]);        //显示数组table1的内容
+ 105   2                      delay_lcd(1);
+ 106   2              }
+ 107   1              write_com(0x80+0x40);
+ 108   1              for(num=0;num<16;num++)
+ 109   1              {
+ 110   2                      write_date(table5[num]);        //显示数组table2的内容
+ 111   2                      delay_lcd(1);
+ 112   2              }                                         
+ 113   1      }
+ 114          void Dispaly(char add,char dat)         //显示空车位数
+ 115          {
+ 116   1              write_com(0x80+add);                                                    //要写的地址
+ 117   1              write_date(0x30+dat);                                                   //内容   1602字符库
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 3   
+
+ 118   1      }
+ 119          void LCD_Display_String(unsigned char line,unsigned char *string)
+ 120          {                                                                               //液晶屏显示内容，把要显示的内容写到对应的位置
+ 121   1              unsigned char i;
+ 122   1              unsigned char address=0;
+ 123   1              if(line==1)
+ 124   1              {
+ 125   2                      address=0x80;                                   //0X80是第1行的第1个位置  ,0x81第2位
+ 126   2              }
+ 127   1              else if(line==2)
+ 128   1              {
+ 129   2                      address=0x80+0x40;                      //0X80+0x40是第2行的第1个位置  ,0X80+0x40+1是第2行第2位
+ 130   2              }
+ 131   1              
+ 132   1              for(i=0;i<16;i++)
+ 133   1              {
+ 134   2                      write_com(address);
+ 135   2                      write_date(string[i]);
+ 136   2                      address++;
+ 137   2              } 
+ 138   1      }
+ 139          /*************************************延时1ms函数*********************************************************
+             -*/
+ 140          void delay(uint z)                                      
+ 141          {
+ 142   1              uint x,y;
+ 143   1              for(x=z;x>0;x--)
+ 144   1                      for(y=110;y>0;y--);
+ 145   1      }
+ 146          
+ 147          /*************************************车位计算并显示******************************************************
+             -****/
+ 148          void stall_count(void)                                          
+ 149          {
+ 150   1              if(IN==0)
+ 151   1              {
+ 152   2                      delay(5);
+ 153   2                      if(IN==0)
+ 154   2                      {
+ 155   3                              while(!IN);
+ 156   3                              if(Count>0)
+ 157   3                              Count--;
+ 158   3                      }
+ 159   2              }
+ 160   1              if(OUT==0)
+ 161   1              {
+ 162   2                      delay(5);
+ 163   2                      if(OUT==0)
+ 164   2                      {
+ 165   3                              while(!OUT);
+ 166   3                              if(Count<8)
+ 167   3                              Count++;
+ 168   3                      }
+ 169   2              }
+ 170   1              switch(Count)
+ 171   1              {
+ 172   2                      case 0:STALL1=1;STALL2=1;STALL3=1;STALL4=1;STALL5=1;STALL6=1;STALL7=1;STALL8=1;break;
+ 173   2                      case 1:STALL1=0;STALL2=1;STALL3=1;STALL4=1;STALL5=1;STALL6=1;STALL7=1;STALL8=1;break;
+ 174   2                      case 2:STALL1=0;STALL2=1;STALL3=1;STALL4=1;STALL5=0;STALL6=1;STALL7=1;STALL8=1;break;
+ 175   2                      case 3:STALL1=0;STALL2=0;STALL3=1;STALL4=1;STALL5=0;STALL6=1;STALL7=1;STALL8=1;break;
+ 176   2                      case 4:STALL1=0;STALL2=0;STALL3=1;STALL4=1;STALL5=0;STALL6=0;STALL7=1;STALL8=1;break;
+ 177   2                      case 5:STALL1=0;STALL2=0;STALL3=0;STALL4=1;STALL5=0;STALL6=0;STALL7=1;STALL8=1;break;
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 4   
+
+ 178   2                      case 6:STALL1=0;STALL2=0;STALL3=0;STALL4=1;STALL5=0;STALL6=0;STALL7=0;STALL8=1;break;
+ 179   2                      case 7:STALL1=0;STALL2=0;STALL3=0;STALL4=0;STALL5=0;STALL6=0;STALL7=0;STALL8=1;break;
+ 180   2                      case 8:STALL1=0;STALL2=0;STALL3=0;STALL4=0;STALL5=0;STALL6=0;STALL7=0;STALL8=0;break;
+ 181   2                      default:break;
+ 182   2              }
+ 183   1      
+ 184   1              Command_AT_Stall[31]=Command_NUM[Count];        //存到Command_AT_Tem[31]
+ 185   1              Dispaly(14,Count);                       //显示车位数
+ 186   1              LCD_dsiplay();                                          //显示序号
+ 187   1              
+ 188   1              if(Count==0)                             //无车位报警
+ 189   1              {
+ 190   2                      BEEP=1;
+ 191   2                      if(Alarm_flag==0)                       //警报标志位为1时发送报警信息
+ 192   2                      {
+ 193   3                              Send_Message2();                //发送报警短信
+ 194   3                      }
+ 195   2                      Alarm_flag=1;                           //标志位置一，表示短信已经发送，避免重复发送短信
+ 196   2              }               
+ 197   1              else
+ 198   1              {
+ 199   2                      BEEP=0;
+ 200   2                      Alarm_flag=0;                           //清除标志位，下次继续发送短信一次
+ 201   2              }               
+ 202   1      }
+ 203          
+ 204          void LCD_dsiplay(void)
+ 205          {       
+ 206   1              write_com(0x80+0x40+7);          //写首地址
+ 207   1              switch(Count)                            //显示空车位序号
+ 208   1              {
+ 209   2                      case 8: write_date(0x30+1);                                             
+ 210   2                                      write_date(0x30+2);
+ 211   2                                      write_date(0x30+3);
+ 212   2                                      write_date(0x30+4);
+ 213   2                                      write_date(0x30+5);
+ 214   2                                      write_date(0x30+6);
+ 215   2                                      write_date(0x30+7);
+ 216   2                                      write_date(0x30+8);
+ 217   2                                      break;
+ 218   2                      case 7: write_date(0x30+1);                                             
+ 219   2                                      write_date(0x30+2);
+ 220   2                                      write_date(0x30+3);
+ 221   2                                      write_date(0x30+4);
+ 222   2                                      write_date(0x30+5);
+ 223   2                                      write_date(0x30+6);
+ 224   2                                      write_date(0x30+7);
+ 225   2                                      write_date(0x20);
+ 226   2                                      break;
+ 227   2                      case 6: write_date(0x30+1);                                             
+ 228   2                                      write_date(0x30+2);
+ 229   2                                      write_date(0x30+3);
+ 230   2                                      write_date(0x30+5);
+ 231   2                                      write_date(0x30+6);
+ 232   2                                      write_date(0x30+7);
+ 233   2                                      write_date(0x20);
+ 234   2                                      write_date(0x20);
+ 235   2                                      break;
+ 236   2                      case 5: write_date(0x30+1);                                             
+ 237   2                                      write_date(0x30+2);
+ 238   2                                      write_date(0x30+3);
+ 239   2                                      write_date(0x30+5);
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 5   
+
+ 240   2                                      write_date(0x30+6);
+ 241   2                                      write_date(0x20);
+ 242   2                                      write_date(0x20);
+ 243   2                                      write_date(0x20);
+ 244   2                                      break;
+ 245   2                      case 4: write_date(0x30+1);                                             
+ 246   2                                      write_date(0x30+2);
+ 247   2                                      write_date(0x30+5);
+ 248   2                                      write_date(0x30+6);
+ 249   2                                      write_date(0x20);
+ 250   2                                      write_date(0x20);
+ 251   2                                      write_date(0x20);
+ 252   2                                      write_date(0x20);
+ 253   2                                      break;
+ 254   2                      case 3: write_date(0x30+1);                                             
+ 255   2                                      write_date(0x30+2);
+ 256   2                                      write_date(0x30+5);
+ 257   2                                      write_date(0x20);
+ 258   2                                      write_date(0x20);
+ 259   2                                      write_date(0x20);
+ 260   2                                      write_date(0x20);
+ 261   2                                      write_date(0x20);
+ 262   2                                      break;
+ 263   2                      case 2: write_date(0x30+1);                                             
+ 264   2                                      write_date(0x30+5);
+ 265   2                                      write_date(0x20);
+ 266   2                                      write_date(0x20);
+ 267   2                                      write_date(0x20);
+ 268   2                                      write_date(0x20);
+ 269   2                                      write_date(0x20);
+ 270   2                                      write_date(0x20);
+ 271   2                                      break;
+ 272   2                      case 1: write_date(0x30+1);
+ 273   2                                      write_date(0x20);
+ 274   2                                      write_date(0x20);
+ 275   2                                      write_date(0x20);
+ 276   2                                      write_date(0x20);
+ 277   2                                      write_date(0x20);
+ 278   2                                      write_date(0x20);
+ 279   2                                      write_date(0x20);                               
+ 280   2                                      break;
+ 281   2                      case 0: write_date(0x20);
+ 282   2                                      write_date(0x20);
+ 283   2                                      write_date(0x20);
+ 284   2                                      write_date(0x20);
+ 285   2                                      write_date(0x20);
+ 286   2                                      write_date(0x20);
+ 287   2                                      write_date(0x20);
+ 288   2                                      write_date(0x20);
+ 289   2                                      break;
+ 290   2                      default:break;                                          
+ 291   2              }
+ 292   1      }
+ 293          /************************************SIM800***********************************************************/
+ 294          void delay1(uint z)                                                                     //GSM短信延时1ms函数
+ 295          {
+ 296   1              uint x,y;
+ 297   1              for(x=z;x>0;x--)
+ 298   1                      for(y=110;y>0;y--);
+ 299   1      }
+ 300          
+ 301          void Sys_Init(void)
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 6   
+
+ 302          {
+ 303   1              TMOD=0x21;                                              //设置定时器1的工作方式为方式2
+ 304   1              TH1=0xfd;
+ 305   1              TL1=0xfd;                                               //设置串行口波特率为9600
+ 306   1              TR1=1;                                                  //开启定时器1
+ 307   1              SCON=0x50;                                              //设置串行口的工作方式为方式一，允许接收
+ 308   1              PCON=0x00;
+ 309   1              ES=1;                                                   //开串行口中断  
+ 310   1              EA=1;                                                   //开总中断
+ 311   1      }
+ 312          void Delay_0_5s(uint y)                          //延时1s
+ 313          {
+ 314   1              uint a;
+ 315   1              for(a=0;a<10*y;a++)                             //20为1s
+ 316   1              {
+ 317   2                      TH0=(65536-50000)/256;
+ 318   2                      TL0=(65536-50000)%256;
+ 319   2                      TR0=1;
+ 320   2                      while(!TF0);
+ 321   2                      TF0=0;
+ 322   2              }
+ 323   1      }
+ 324          
+ 325          void Send_Command(uchar Value[],uchar Len)      //发送指令，Value[]表示发送哪个数组，Len表示发送该数组里的几位
+ 326          {
+ 327   1              uchar i;
+ 328   1              for(i=0;i<Len;i++)
+ 329   1              {
+ 330   2                      SBUF=Value[i];
+ 331   2                      while(!TI);
+ 332   2                      TI=0;
+ 333   2              }
+ 334   1      }
+ 335          
+ 336          void SIM_Init(void)                                               //SIM模块初始化
+ 337          {
+ 338   1              Send_Command(Command_ATE,5);              //设置回显
+ 339   1              delay1(1000);
+ 340   1              Send_Command(Command_AT,3);                       //建立连接
+ 341   1              delay1(10);
+ 342   1              Send_Command(Command_AT_CMGF,10);         //设置为text格式
+ 343   1              delay1(2000);
+ 344   1              Send_Command(Command_AT_CNMI,14);         //设置为设置为中断方式接收短信，即TC35接收短信后向下位机串口发送 +CMT
+             -I: "SM",1 。
+ 345   1              delay1(3000);
+ 346   1              Send_Command(Command_AT_CLIP,10);         //设置来电提示  RING   +CLIP:
+ 347   1              delay1(1000);
+ 348   1              Send_Command(Command_AT_CRC,9);           //设置来电提示  RING   +CLIP:
+ 349   1              delay1(1000);
+ 350   1              Send_Command(Command_AT_IPR,12);          //设置波特率=9600
+ 351   1              delay1(1000);
+ 352   1      }
+ 353          
+ 354          void Transform(void)                                                            //接收内容提取识别判断
+ 355          {
+ 356   1              uchar i;
+ 357   1              if(UART0_flg==1)
+ 358   1              {       
+ 359   2                      delay1(2000);
+ 360   2                      Adjust=1;
+ 361   2                      if((UART0_Data[Len+8]>=0x30)&&(UART0_Data[Len+8]<0x40))//第一个号码必须是数字，避免错乱
+ 362   2                      {
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 7   
+
+ 363   3                              for(i=0;i<16;i++)
+ 364   3                              {
+ 365   4                                      Number[i]=UART0_Data[Len+8+i];                  //提取号码
+ 366   4                              }          
+ 367   3                              if((Number[0]<0x30)||(Number[0]>=0x40))         //不是有效数字，显示空格
+ 368   3                              {Number[0]=0x20;Number[1]=0x20;Number[2]=0x20;Number[3]=0x20;Number[4]=0x20;Number[5]=0x20;Number[6]=0x
+             -20;Number[7]=0x20;Number[8]=0x20;Number[9]=0x20;Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[1
+             -4]=0x20;Number[15]=0x20;}
+ 369   3                              if((Number[1]<0x30)||(Number[1]>=0x40))         //不是有效数字，显示空格
+ 370   3                              {Number[1]=0x20;Number[2]=0x20;Number[3]=0x20;Number[4]=0x20;Number[5]=0x20;Number[6]=0x20;Number[7]=0x
+             -20;Number[8]=0x20;Number[9]=0x20;Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[
+             -15]=0x20;}
+ 371   3                              if((Number[2]<0x30)||(Number[2]>=0x40))         //不是有效数字，显示空格
+ 372   3                              {Number[2]=0x20;Number[3]=0x20;Number[4]=0x20;Number[5]=0x20;Number[6]=0x20;Number[7]=0x20;Number[8]=0x
+             -20;Number[9]=0x20;Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 373   3                              if((Number[3]<0x30)||(Number[3]>=0x40))         //不是有效数字，显示空格
+ 374   3                              {Number[3]=0x20;Number[4]=0x20;Number[5]=0x20;Number[6]=0x20;Number[7]=0x20;Number[8]=0x20;Number[9]=0x
+             -20;Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 375   3                              if((Number[4]<0x30)||(Number[4]>=0x40))         //不是有效数字，显示空格
+ 376   3                              {Number[4]=0x20;Number[5]=0x20;Number[6]=0x20;Number[7]=0x20;Number[8]=0x20;Number[9]=0x20;Number[10]=0
+             -x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 377   3                              if((Number[5]<0x30)||(Number[5]>=0x40))         //不是有效数字，显示空格
+ 378   3                              {Number[5]=0x20;Number[6]=0x20;Number[7]=0x20;Number[8]=0x20;Number[9]=0x20;Number[10]=0x20;Number[11]=
+             -0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 379   3                              if((Number[6]<0x30)||(Number[6]>=0x40))         //不是有效数字，显示空格
+ 380   3                              {Number[6]=0x20;Number[7]=0x20;Number[8]=0x20;Number[9]=0x20;Number[10]=0x20;Number[11]=0x20;Number[12]
+             -=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 381   3                              if((Number[7]<0x30)||(Number[7]>=0x40))         //不是有效数字，显示空格
+ 382   3                              {Number[7]=0x20;Number[8]=0x20;Number[9]=0x20;Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13
+             -]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 383   3                              if((Number[8]<0x30)||(Number[8]>=0x40))         //不是有效数字，显示空格
+ 384   3                              {Number[8]=0x20;Number[9]=0x20;Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[1
+             -4]=0x20;Number[15]=0x20;}
+ 385   3                              if((Number[9]<0x30)||(Number[9]>=0x40))         //不是有效数字，显示空格
+ 386   3                              {Number[9]=0x20;Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[
+             -15]=0x20;}
+ 387   3                              if((Number[10]<0x30)||(Number[10]>=0x40))       //不是有效数字，显示空格
+ 388   3                              {Number[10]=0x20;Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 389   3                              if((Number[11]<0x30)||(Number[11]>=0x40))       //不是有效数字，显示空格
+ 390   3                              {Number[11]=0x20;Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 391   3                              if((Number[12]<0x30)||(Number[12]>=0x40))       //不是有效数字，显示空格
+ 392   3                              {Number[12]=0x20;Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 393   3                              if((Number[13]<0x30)||(Number[13]>=0x40))       //不是有效数字，显示空格
+ 394   3                              {Number[13]=0x20;Number[14]=0x20;Number[15]=0x20;}
+ 395   3                              if((Number[14]<0x30)||(Number[14]>=0x40))       //不是有效数字，显示空格
+ 396   3                              {Number[14]=0x20;Number[15]=0x20;}
+ 397   3                              if((Number[15]<0x30)||(Number[15]>=0x40))       //不是有效数字，显示空格
+ 398   3                              {Number[15]=0x20;}
+ 399   3      
+ 400   3                              LCD_Display_String(1,table7);                           //显示号码
+ 401   3                              LCD_Display_String(2,Number);
+ 402   3                              delay1(2000);
+ 403   3                              Send_Command(Command_ATH,4);                            //发送挂机命令
+ 404   3                              delay1(2000);
+ 405   3                              Send_Message1();                                                        //发送当前车位数
+ 406   3                              Adjust=0;
+ 407   3                              LCD_Display_String(1,table1);                           //显示内容
+ 408   3                              LCD_Display_String(2,table2);                           //显示内容
+ 409   3                      }
+ 410   2                      UART0_Len = 0;
+ 411   2                      UART0_flg=0;
+ 412   2              }         
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 8   
+
+ 413   1      }
+ 414          void Send_Message(void)                                           //发送到指定号码  来电对象
+ 415          {
+ 416   1              Send_Command(Command_AT_CMGS,8);                  //发送指令
+ 417   1              delay1(500);                                                      
+ 418   1              Send_Command(Command_AT_YIN,1);               //发送引号
+ 419   1              delay1(100);
+ 420   1              Send_Command(Number,11);                                  //发送号码
+ 421   1              delay1(100);
+ 422   1              Send_Command(Command_AT_YIN,1);               //发送引号
+ 423   1              delay1(100);
+ 424   1              Send_Command(Command_AT_ENTER,1);                 //发送回车
+ 425   1              delay1(100);
+ 426   1      }       
+ 427          void Send_Message1(void)                                          //发送车位数
+ 428          {
+ 429   1              Send_Message();                                                   //发送到指定号码
+ 430   1              delay1(1000);                                                     //等待回复输入符号
+ 431   1              Send_Command(Command_AT_Stall,33);                //发送短信内容
+ 432   1              delay1(1000);
+ 433   1              Send_Command(Command_AT_End,1);                   //发送短信结束符
+ 434   1              delay1(100);
+ 435   1      }
+ 436          void Send_Message0(void)                                          //发送到指定号码  报警号码对象
+ 437          {
+ 438   1              Send_Command(Command_AT_CMGS,8);                  //发送指令
+ 439   1              delay1(500);                                                      
+ 440   1              Send_Command(Command_AT_YIN,1);               //发送引号
+ 441   1              delay1(100);
+ 442   1              Send_Command(Command_AT_NUM,11);                  //发送号码
+ 443   1              delay1(100);
+ 444   1              Send_Command(Command_AT_YIN,1);               //发送引号
+ 445   1              delay1(100);
+ 446   1              Send_Command(Command_AT_ENTER,1);                 //发送回车
+ 447   1              delay1(100);
+ 448   1      }
+ 449          void Send_Message2(void)                                          //发送车位满短信息
+ 450          {
+ 451   1              Send_Message0();                                                  //发送到指定号码
+ 452   1              delay1(1000);                                                     //等待回复输入符号
+ 453   1              Send_Command(Command_AT_Full,43);                 //发送短信内容
+ 454   1              delay1(1000);
+ 455   1              Send_Command(Command_AT_End,1);                   //发送短信结束符
+ 456   1              delay1(100);
+ 457   1      }
+ 458          /*************************************主函数**********************************************************/
+ 459          void main()
+ 460          {       
+ 461   1              BEEP=0;
+ 462   1              Sys_Init();                                                                     //单片机系统初始化
+ 463   1              init();                                                                         //液晶屏初始化
+ 464   1              Delay_0_5s(50);                                                         //等待模块初始化
+ 465   1              SIM_Init();                                                                     //模块初始化
+ 466   1              LCD_Display_String(1,table1);                           //显示内容
+ 467   1              LCD_Display_String(2,table2);                           //显示内容
+ 468   1              while(1)
+ 469   1              {
+ 470   2                      if(Adjust==0)                                                   //没有来电时显示车位
+ 471   2                      {
+ 472   3                              
+ 473   3                              stall_count();                                          //车位检测计算                  
+ 474   3                      }
+C51 COMPILER V9.01   PARKING                                                               01/22/2019 10:06:43 PAGE 9   
+
+ 475   2                      Transform();                                                    //通讯处理
+ 476   2              }       
+ 477   1      }
+ 478          /***********************************串口中断服务子程序 无需调用 有数据就直接进入**************************
+             -*********************************/
+ 479          void Serial() interrupt 4
+ 480          {       
+ 481   1              RI=0;                                                                           //接收完毕
+ 482   1              UART0_Data[UART0_Len] = SBUF;                   //存入到对应数组
+ 483   1              
+ 484   1              if(SBUF==0x2B)                                                          //+号 表示有短信或者电话打入
+ 485   1              {
+ 486   2                      Len=UART0_Len;                                                  //记录序号 
+ 487   2              }
+ 488   1              if((UART0_Data[Len+1]==0x43)&&(UART0_Data[Len+2]==0x4C)&&(UART0_Data[Len+3]==0x49)&&(UART0_Data[Len+4]==0
+             -x50)&&(UART0_Data[Len+5]==0x3A))
+ 489   1              {                                                                                       //接收到的内容是电话提示UART0_Data【】="+CLIP:"，比较前6位
+ 490   2                      UART0_flg = 1;                                                  //挂机标志位置一
+ 491   2              }
+ 492   1                                              
+ 493   1              UART0_Len++;                                                            //序号递增       
+ 494   1      }
+ 495          /***********************************************************************************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2234    ----
+   CONSTANT SIZE    =    267    ----
+   XDATA SIZE       =    256    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     54       8
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
